@@ -19,7 +19,7 @@
 
 bl_info = {
     'name': 'Index Visualiser (BMesh)',
-    'author': 'Bartius Crouch, CoDEmanX, zeffii',
+    'author': 'Bartius Crouch, CoDEmanX, zeffii, Jui-Hsien Wang',
     'version': (3, 0, 0),
     'blender': (2, 7, 0),
     'location': 'View3D > Properties panel > Mesh Display tab (edit-mode)',
@@ -50,7 +50,7 @@ import math
 from bpy_extras.view3d_utils import location_3d_to_region_2d as loc3d2d
 
 point_dict = {}
-
+V_INDEX_SET = set()
 
 def adjust_list(in_list, x, y):
     return [[old_x + x, old_y + y] for (old_x, old_y) in in_list]
@@ -149,10 +149,12 @@ def draw_callback_px(self, context):
         me.update()
 
     if scene.display_vert_index:
+        V_INDEX_SET.clear()
         for v in bm.verts:
             if not v.hide and (v.select or not scene.display_sel_only):
                 ## CoDEmanx: bm.verts.index_update()?
                 draw_index(vert_idx_color, v.index, v.co.to_4d())
+                V_INDEX_SET.add(v.index)
 
     if scene.display_edge_index:
         for e in bm.edges:
@@ -168,6 +170,30 @@ def draw_callback_px(self, context):
                 draw_index(
                     face_idx_color, f.index, f.calc_center_median().to_4d())
 
+class ExportSomeData(bpy.types.Operator):
+    """Export selected vertex indices data"""
+    bl_idname = "export.some_data"
+    bl_label = "Export Some Data"
+
+    filepath = bpy.props.StringProperty(subtype="FILE_PATH")
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
+    def execute(self, context):
+        if context.scene.display_vert_index:
+            file = open(self.filepath, 'w')
+            line=''
+            for v in V_INDEX_SET: 
+                line += '%u\n' %(v)
+            file.write(line)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        if context.scene.display_vert_index:
+            context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
 # operator
 class IndexVisualiser(bpy.types.Operator):
@@ -224,13 +250,17 @@ def menu_func(self, context):
     row.prop(scn, "display_vert_index", toggle=True)
     row.prop(scn, "display_edge_index", toggle=True)
     row.prop(scn, "display_face_index", toggle=True)
+
+    row = col.row(align=True)
+    col.operator(ExportSomeData.bl_idname, text="Export selected vertex indices")
+    # self.layout.operator_context = 'INVOKE_DEFAULT'
+    # self.layout.operator(ExportSomeData.bl_idname, text="Export selected vertex indices")
+    row.active = (context.mode == "EDIT_MESH" and scn.display_vert_index)
+
     row = col.row(align=True)
     row.active = context.mode == "EDIT_MESH" and scn.display_indices == 1
     row.prop(context.scene, "display_sel_only")
     #row.prop(context.scene, "live_mode")
-
-    row.prop(context.scene, "dump_selection")
-
 
 def register_properties():
     bpy.types.Scene.display_indices = bpy.props.IntProperty(
@@ -254,9 +284,6 @@ def register_properties():
         name="Live",
         description="Toggle live update of the selection, can be slow",
         default=False)
-    bpy.types.Scene.dump_selection = bpy.props.StringProperty(
-        name="Dump to file ",
-        description="Dump selected vertices to file")
 
 def unregister_properties():
     del bpy.types.Scene.display_indices
@@ -265,13 +292,14 @@ def unregister_properties():
     del bpy.types.Scene.display_edge_index
     del bpy.types.Scene.display_face_index
     del bpy.types.Scene.live_mode
-    del bpy.types.Scene.dump_selection
 
 def register():
     register_properties()
     bpy.utils.register_class(IndexVisualiser)
     bpy.types.VIEW3D_PT_view3d_meshdisplay.append(menu_func)
 
+    bpy.utils.register_class(ExportSomeData)
+    bpy.types.INFO_MT_file_export.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(IndexVisualiser)
